@@ -400,7 +400,8 @@ def organization_list():
             point_plan_date = None
             for org_plan in org_plans:
                 # Active plan check
-                if datetime.datetime.strptime(org_plan.get("start_datetime"), common_const.FORMAT_DATETIME_PLAN_START_DATETIME) <= datetime.datetime.now():
+                if datetime.datetime.strptime(org_plan.get("start_datetime"),
+                                              common_const.FORMAT_DATETIME_PLAN_START_DATETIME) <= datetime.datetime.now():
                     # 初回か2回目以降かでチェックを分ける
                     # Separate checks for the first time or the second and subsequent times
                     if point_plan_date:
@@ -617,7 +618,7 @@ def __client_create(organization_id, user_id):
     # Get a service account token
     token = __get_token()
 
-    templates = ["template_client_internal_api.json", "template_client_token_check.json", "template_client_user_token.json"]
+    templates = ["template_client_internal_api.json", "template_client_token_check.json", "template_client_user_token.json", "template_client_api_token.json"]
 
     for template_path in templates:
         # templatesの取得
@@ -1219,6 +1220,7 @@ def __organization_database_update(organization_id, user_id):
     user_token_client_clientid = common.get_user_token_client_id(organization_id)
     internal_api_client_clientid = common.get_platform_client_id(organization_id)
     token_check_client_clientid = common.get_token_authentication_client_id(organization_id)
+    api_token_client_clientid = common.get_api_token_client_id(organization_id)
 
     # 該当Client情報を取得
     # get client infomations
@@ -1270,6 +1272,22 @@ def __organization_database_update(organization_id, user_id):
 
     response_json = json.loads(response.text)
     token_check_client_id = response_json[0].get("id")
+
+    response = api_keycloak_clients.clients_get(organization_id, api_token_client_clientid, token)
+    if response.status_code != 200:
+        globals.logger.error(f"response.status_code:{response.status_code}")
+        globals.logger.error(f"response.text:{response.text}")
+        message_id = f"500-{MSG_FUNCTION_ID}014"
+        message = multi_lang.get_text(
+            message_id,
+            "clientの取得に失敗しました(対象ID:{0} client:{1})",
+            organization_id,
+            api_token_client_clientid
+        )
+        raise common.InternalErrorException(message_id=message_id, message=message)
+
+    response_json = json.loads(response.text)
+    api_token_client_id = response_json[0].get("id")
 
     # 該当Client secret情報を取得
     # get client secret
@@ -1342,6 +1360,8 @@ def __organization_database_update(organization_id, user_id):
         "TOKEN_CHECK_CLIENT_CLIENTID": token_check_client_clientid,
         "TOKEN_CHECK_CLIENT_ID": token_check_client_id,
         "TOKEN_CHECK_CLIENT_SECRET": token_check_client_secret,
+        "API_TOKEN_CLIENT_CLIENTID": api_token_client_clientid,
+        "API_TOKEN_CLIENT_ID": api_token_client_id,
     }
 
     # organization private table update
@@ -1507,3 +1527,150 @@ def __update_organization_private(infomations, organization_id, user_id):
                 raise common.InternalErrorException(message_id=message_id, message=message)
 
     return
+
+
+@common.platform_exception_handler
+def organization_setting_get(organization_id):  # noqa: E501
+    """get an organization settings
+
+    Args:
+        organization_id (str): organization id
+
+    Returns:
+        response: HTTP Response
+    """
+    private = DBconnector().get_organization_private(organization_id)
+
+    # サービスアカウントのTOKEN取得
+    # Get a service account token
+    token_response = api_keycloak_tokens.service_account_get_token(
+        organization_id, private.internal_api_client_clientid, private.internal_api_client_secret,
+    )
+    if token_response.status_code != 200:
+        raise common.AuthException(
+            "client_user_get_token error status:{}, response:{}".format(token_response.status_code, token_response.text)
+        )
+    token = json.loads(token_response.text)["access_token"]
+
+    # realm取得
+    # get realm to keycloak
+    realm_response = api_keycloak_realms.realm_get(organization_id, token)
+    if realm_response.status_code != 200:
+        globals.logger.error(f"response.status_code:{realm_response.status_code}")
+        globals.logger.error(f"response.text:{realm_response.text}")
+        message_id = f"500-{MSG_FUNCTION_ID}018"
+        message = multi_lang.get_text(
+            message_id,
+            "realm情報の取得に失敗しました。")
+        raise common.InternalErrorException(message_id=message_id, message=message)
+
+    realm_response_json = json.loads(realm_response.text)
+
+    client_response = api_keycloak_clients.clients_get(organization_id, private.api_token_client_clientid, token)
+    if client_response.status_code != 200:
+        globals.logger.error(f"response.status_code:{client_response.status_code}")
+        globals.logger.error(f"response.text:{client_response.text}")
+        message_id = f"500-{MSG_FUNCTION_ID}004"
+        message = multi_lang.get_text(
+            message_id,
+            "clientの取得に失敗しました(対象ID:{0} client:{1})",
+            organization_id, private.api_token_client_clientid)
+        raise common.InternalErrorException(message_id=message_id, message=message)
+
+    client_response_json = json.loads(client_response.text)[0]
+
+    data = {'token': {}}
+
+    data['token']['refresh_token_max_lifespan_enabled'] = realm_response_json['offlineSessionMaxLifespanEnabled']
+    if realm_response_json['offlineSessionMaxLifespanEnabled']:
+        data['token']['refresh_token_max_lifespan_days'] = int(realm_response_json['offlineSessionMaxLifespan']  / 24 / 60 / 60)
+
+    data['token']['access_token_lifespan_minutes'] = int(int(client_response_json["attributes"]["access.token.lifespan"]) / 60)
+
+    return common.response_200_ok(data)
+
+
+@common.platform_exception_handler
+def organization_setting_update(body, organization_id):  # noqa: E501
+    """update an organization settings
+
+    Args:
+        body (dict): organization setting.
+        organization_id (str): organization id
+
+    Returns:
+        response: HTTP Response
+    """
+
+    # validation check
+    validate = validation.validate_organization_setting(body)
+    if not validate.ok:
+        return common.response_validation_error(validate)
+
+    # get client
+    db = DBconnector()
+    private = db.get_organization_private(organization_id)
+
+    # サービスアカウントのTOKEN取得
+    # Get a service account token
+    token_response = api_keycloak_tokens.service_account_get_token(
+        organization_id, private.internal_api_client_clientid, private.internal_api_client_secret,
+    )
+    if token_response.status_code != 200:
+        raise common.AuthException(
+            "client_user_get_token error status:{}, response:{}".format(token_response.status_code, token_response.text)
+        )
+    token = json.loads(token_response.text)["access_token"]
+
+    # make keycloak parameter
+    realm_updete = False
+    realm_json = {}
+    api_client_update = False
+    api_client_json = {}
+
+    if "token" in body:
+        realm_updete = True
+        realm_json["offlineSessionMaxLifespanEnabled"] = body["token"]["refresh_token_max_lifespan_enabled"]
+        if realm_json["offlineSessionMaxLifespanEnabled"]:
+            realm_json["offlineSessionMaxLifespan"] = body["token"]["refresh_token_max_lifespan_days"] * 24 * 60 * 60
+            realm_json["offlineSessionIdleTimeout"] = body["token"]["refresh_token_max_lifespan_days"] * 24 * 60 * 60
+        else:
+            realm_json["offlineSessionMaxLifespan"] = 999999999
+            realm_json["offlineSessionIdleTimeout"] = 999999999
+
+        api_client_update = True
+        if "attributes" not in api_client_json:
+            api_client_json["attributes"] = {}
+
+        api_client_json["attributes"]["access.token.lifespan"] = body["token"]["access_token_lifespan_minutes"] * 60
+        api_client_json["attributes"]["client.session.max.lifespan"] = body["token"]["access_token_lifespan_minutes"] * 60
+        api_client_json["attributes"]["client.session.idle.timeout"] = body["token"]["access_token_lifespan_minutes"] * 60
+
+    if realm_updete:
+        # realm更新
+        # realm update to keycloak
+        response = api_keycloak_realms.realm_update(organization_id, realm_json, token)
+        if response.status_code != 200 and response.status_code != 204:
+            globals.logger.error(f"response.status_code:{response.status_code}")
+            globals.logger.error(f"response.text:{response.text}")
+            message_id = f"500-{MSG_FUNCTION_ID}019"
+            message = multi_lang.get_text(
+                message_id,
+                "realmの更新に失敗しました(対象ID:{0})",
+                organization_id)
+            raise common.InternalErrorException(message_id=message_id, message=message)
+
+    if api_client_update:
+        # api client更新
+        response = api_keycloak_clients.client_update(organization_id, private.api_token_client_id, api_client_json, token)
+        if response.status_code != 200 and response.status_code != 204:
+            globals.logger.error(f"response.status_code:{response.status_code}")
+            globals.logger.error(f"response.text:{response.text}")
+            message_id = f"500-{MSG_FUNCTION_ID}020"
+            message = multi_lang.get_text(
+                message_id,
+                "clientの更新に失敗しました(対象ID:{0}.{1})",
+                organization_id, private.api_token_client_clientid)
+            raise common.InternalErrorException(message_id=message_id, message=message)
+
+    return common.response_200_ok(None)

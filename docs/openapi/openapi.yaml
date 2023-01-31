@@ -17,14 +17,37 @@ openapi: 3.0.3
 info:
   title: Exastro Platform API
   description: Exastro Platform API
-  version: 1.2.0
+  version: 1.3.0
 
 servers:
-- url: /
+  - url: "https://{host}"
+    description: API endpoint
+    variables:
+      host:
+        default: localhost
+  - url: "http://{host}"
+    description: API endpoint
+    variables:
+      host:
+        default: localhost
+  - url: "{protocol}://{host}:{port}"
+    description: API endpoint (Development)
+    variables:
+      protocol:
+        enum:
+          - http
+          - https
+        default: https
+      host:
+        default: localhost
+      port:
+        default: '30080'
 
 tags:
 - name: OrganizationService
   description: オーガナイゼーションに関する操作
+- name: TokenService
+  description: tokenに関する操作
 - name: PlanService
   description: プランに関する操作
 - name: UsageService
@@ -49,6 +72,13 @@ tags:
 paths:
   "/api/platform/organizations":
       $ref: './paths/organizations.yaml'
+  "/api/{organization_id}/platform/setting":
+      $ref: './paths/organization.setting.yaml'
+
+  "/auth/realms/{organization_id}/protocol/openid-connect/token":
+      $ref: './paths/protocol.openid-connect.token.yaml'
+  "/api/{organization_id}/platform/users/_current/refresh_tokens":
+      $ref: './paths/user.current.refresh_tokens.yaml'
 
   "/api/platform/{organization_id}/plans":
       $ref: './paths/plans.organizations.yaml'
@@ -102,3 +132,22 @@ paths:
 components:
   schemas:
     $ref: './schemas/_schemas.yaml'
+
+  securitySchemes:
+    BearerAuth:
+      description: Credentials or access token for API
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    BasicAuth:
+      description: Value converted from ID/Password in base64
+      type: http
+      scheme: basic
+
+  responses:
+    UnauthorizedError:
+      description: Access token is missing or invalid
+
+security:
+- BearerAuth: []
+- BasicAuth: []

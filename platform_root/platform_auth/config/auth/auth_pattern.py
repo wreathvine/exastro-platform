@@ -79,6 +79,11 @@ AUTH_PATTERN = [
         ]
     },
     {
+        "url": r"^/api/(?P<org_id>[^/][^/]*)/platform/users/_current/refresh_tokens$",
+        # do not regulate - 規制しない
+        "auth": []
+    },
+    {
         "url": r"^/api/(?P<org_id>[^/][^/]*)/platform/roles($|/.*$)",
         "auth": [
             {
@@ -157,4 +162,15 @@ AUTH_PATTERN = [
             }
         ]
     },
+    {
+        "url": r"^/api/(?P<org_id>[^/][^/]*)/platform/setting($|/.*$)",
+        "auth": [
+            {
+                "method": ["*"],
+                "roles": [
+                    {"client": "{org_id}-workspaces", "role": const.ORG_AUTH_UPDATE},
+                ]
+            }
+        ]
+    }
 ]

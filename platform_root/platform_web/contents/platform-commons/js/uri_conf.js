@@ -42,6 +42,7 @@ var api_conf = {
             "post": "/api/{organization_id}/platform/users",
             "get": "/api/{organization_id}/platform/users",
             "put": "/api/{organization_id}/platform/users/{user_id}",
+            "delete": "/api/{organization_id}/platform/users/{user_id}",
         }
     }
 }
@@ -67,6 +68,7 @@ var location_conf = {
         },
         "menu": {
             "toppage": "/{organization_id}/platform/workspaces",
+            "account_manaagement": "/auth/admin/{organization_id}/console/#/realms/{organization_id}/users",
         },
         "account": {
             "main_page": "/{organization_id}/platform/account",

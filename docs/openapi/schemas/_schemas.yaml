@@ -26,6 +26,8 @@ organizationUserCreate:
   $ref: "./organizationUserCreate.yaml"
 organizationList:
   $ref: "./organizationList.yaml"
+organizationSetting:
+  $ref: "./organizationSetting.yaml"
 planMappingOrganization:
   $ref: "./planMappingOrganization.yaml"
 planMappingOrganizationList:
@@ -92,3 +94,11 @@ roleMappingUser:
   $ref: "./roleMappingUser.yaml"
 roleUser:
   $ref: "./roleUser.yaml"
+tokenRequestBody:
+  $ref: "./tokenRequestBody.yaml"
+tokenResponseOK:
+  $ref: "./tokenResponseOK.yaml"
+tokenResponseError:
+  $ref: "./tokenResponseError.yaml"
+tokenRefreshList:
+  $ref: "./tokenRefreshList.yaml"
